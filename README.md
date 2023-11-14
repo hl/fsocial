@@ -1,0 +1,3 @@
+# Devcontainer template
+
+Elixir development

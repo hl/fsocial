@@ -1,0 +1,22 @@
+{
+  "name": "devcontainer",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "forwardPorts": [
+    4000,
+    4001,
+    5432
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "phoenixframework.phoenix",
+        "JakeBecker.elixir-ls"
+      ]
+    }
+  }
+}
