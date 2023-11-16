@@ -6,9 +6,10 @@ defmodule Fsocial.User do
   @type username :: String.t()
   @type followers :: non_neg_integer()
   @type state :: %{
-          username: username(),
-          followers: followers(),
-          timer: reference()
+          username: username() | nil,
+          followers: followers() | nil,
+          timer: reference() | nil,
+          avatar: String.t() | nil
         }
 
   defstruct [:username, :followers, :timer]

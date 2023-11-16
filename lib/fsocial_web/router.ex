@@ -17,8 +17,8 @@ defmodule FsocialWeb.Router do
   scope "/", FsocialWeb do
     pipe_through :browser
 
-    live "/username", PageLive, :show
-    live "/", PageLive, :index
+    live "/:username", PageLive.Index, :show
+    live "/", PageLive.Index, :index
   end
 
   # Other scopes may use custom stacks.
