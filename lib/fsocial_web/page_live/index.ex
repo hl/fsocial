@@ -1,13 +1,20 @@
 defmodule FsocialWeb.PageLive.Index do
   use FsocialWeb, :live_view
 
-  @impl true
+  @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
     <.header>
       FakeSocialClub
       <:subtitle>Get all the followers you need!</:subtitle>
     </.header>
+
+    <.simple_form for={@form} phx-submit="search">
+      <.input field={@form[:username]} placeholder="Username" />
+      <:actions>
+        <.button>Search</.button>
+      </:actions>
+    </.simple_form>
 
     <.modal :if={@live_action == :show} id="follow-modal" show on_cancel={JS.patch(~p"/")}>
       <.header>@<%= @username %></.header>
@@ -23,31 +30,35 @@ defmodule FsocialWeb.PageLive.Index do
     """
   end
 
-  @impl true
+  @impl Phoenix.LiveView
   def mount(params, _session, socket) do
     if connected?(socket) && params["username"] do
       username = slugify(params["username"])
-      Fsocial.User.start_child(username)
       FsocialWeb.Endpoint.subscribe(username)
+      Fsocial.User.start_child(username)
     end
 
-    {:ok, socket}
+    {:ok, assign(socket, :form, to_form(%{}))}
   end
 
-  @impl true
+  @impl Phoenix.LiveView
   def handle_params(params, _uri, socket) do
     {:noreply, apply_action(socket, socket.assigns.live_action, params)}
   end
 
-  @impl true
+  @impl Phoenix.LiveView
   def handle_event("follow", _params, socket) do
     Fsocial.User.follow(socket.assigns.username)
     followers = Fsocial.User.followers(socket.assigns.username)
     FsocialWeb.Endpoint.broadcast(socket.assigns.username, "follow", %{followers: followers})
-    {:noreply, socket}
+    {:noreply, assign(socket, :followers, followers)}
   end
 
-  @impl true
+  def handle_event("search", %{"username" => username}, socket) do
+    {:noreply, push_navigate(socket, to: ~p"/#{slugify(username)}")}
+  end
+
+  @impl Phoenix.LiveView
   def handle_info(msg, socket) do
     {:noreply, assign(socket, :followers, format_numbers(msg.payload.followers))}
   end
@@ -71,6 +82,10 @@ defmodule FsocialWeb.PageLive.Index do
 
   def slugify(username) do
     username && Slug.slugify(username, truncate: 255, lowercase: false)
+  end
+
+  def format_numbers(followers) when followers in 0..999 do
+    Integer.to_string(followers)
   end
 
   def format_numbers(followers) do
