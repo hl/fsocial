@@ -3,21 +3,10 @@ defmodule Fsocial.User do
 
   require Logger
 
-  @type username :: String.t()
-  @type followers :: non_neg_integer()
-  @type state :: %{
-          username: username() | nil,
-          followers: followers() | nil,
-          timer: reference() | nil,
-          avatar: String.t() | nil
-        }
-
-  defstruct [:username, :followers, :timer]
-
   @persist_interval_ms :timer.seconds(10)
   @persist_followers_every 1000
 
-  @spec start_child(username()) :: DynamicSupervisor.on_start_child()
+  @spec start_child(Fsocial.State.username()) :: DynamicSupervisor.on_start_child()
   def start_child(username) do
     DynamicSupervisor.start_child(
       {:via, PartitionSupervisor, {Fsocial.DynamicSupervisors, self()}},
@@ -25,7 +14,7 @@ defmodule Fsocial.User do
     )
   end
 
-  @spec child_spec(username()) :: Supervisor.child_spec()
+  @spec child_spec(Fsocial.State.username()) :: Supervisor.child_spec()
   def child_spec(username) do
     %{
       id: "#{__MODULE__}_#{username}",
@@ -35,7 +24,7 @@ defmodule Fsocial.User do
     }
   end
 
-  @spec start_link(username()) :: GenServer.on_start()
+  @spec start_link(Fsocial.State.username()) :: GenServer.on_start()
   def start_link(username) do
     case GenServer.start_link(__MODULE__, username, name: via_tuple(username)) do
       {:ok, pid} ->
@@ -47,12 +36,12 @@ defmodule Fsocial.User do
     end
   end
 
-  @spec follow(username()) :: :ok
+  @spec follow(Fsocial.State.username()) :: :ok
   def follow(username) do
     GenServer.call(via_tuple(username), :follow)
   end
 
-  @spec followers(username()) :: followers()
+  @spec followers(Fsocial.State.username()) :: Fsocial.State.followers()
   def followers(username) do
     Fsocial.Storage.get(username)
   end
@@ -62,26 +51,38 @@ defmodule Fsocial.User do
     Process.flag(:trap_exit, true)
     followers = Fsocial.Repo.get(username, 0)
     Fsocial.Storage.put(username, followers)
-    timer = Process.send_after(self(), :persist, @persist_interval_ms)
+    timer_ref = Process.send_after(self(), :persist, @persist_interval_ms)
 
-    {:ok, %{username: username, followers: followers, timer: timer}}
+    state =
+      Fsocial.State.new(
+        username: username,
+        followers: followers,
+        timer_ref: timer_ref
+      )
+
+    {:ok, state}
   end
 
   @impl GenServer
   def handle_call(:follow, from, state) do
     GenServer.reply(from, :ok)
 
-    state =
-      Map.update!(state, :followers, fn followers ->
-        followers + 1
-      end)
+    state = Fsocial.State.followers(state, 1)
+    username = Fsocial.State.username(state)
+    followers = Fsocial.State.followers(state)
 
-    Fsocial.Storage.put(state.username, state.followers)
+    Fsocial.Storage.put(username, followers)
 
     state =
-      if rem(state.followers, @persist_followers_every) == 0 do
-        Process.cancel_timer(state.timer)
-        persist(state)
+      if rem(followers, @persist_followers_every) == 0 do
+        timer_ref = Fsocial.State.timer_ref(state)
+        Process.cancel_timer(timer_ref)
+        Fsocial.Repo.get_and_update(username, followers)
+
+        Fsocial.State.timer_ref(
+          state,
+          Process.send_after(self(), :persist, @persist_interval_ms)
+        )
       else
         state
       end
@@ -91,25 +92,21 @@ defmodule Fsocial.User do
 
   @impl GenServer
   def handle_info(:persist, state) do
-    {:noreply, persist(state)}
+    username = Fsocial.State.username(state)
+    followers = Fsocial.State.followers(state)
+    Fsocial.Repo.get_and_update(username, followers)
+    {:noreply, state}
   end
 
   @impl GenServer
   def terminate(_reason, state) do
-    Fsocial.Repo.put(state.username, state.followers)
+    username = Fsocial.State.username(state)
+    followers = Fsocial.State.followers(state)
+    Fsocial.Repo.put(username, followers)
   end
 
-  @spec persist(state()) :: state()
-  def persist(%{followers: 0} = state) do
-    state
-  end
-
-  def persist(state) do
-    Fsocial.Repo.get_and_update(state.username, state.followers)
-    %{state | timer: Process.send_after(self(), :persist, @persist_interval_ms)}
-  end
-
-  @spec via_tuple(username()) :: {:via, Registry, {Fsocial.UserRegistry, username()}}
+  @spec via_tuple(Fsocial.State.username()) ::
+          {:via, Registry, {Fsocial.UserRegistry, Fsocial.State.username()}}
   def via_tuple(username) do
     {:via, Registry, {Fsocial.UserRegistry, username}}
   end
